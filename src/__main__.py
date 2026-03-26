@@ -1,4 +1,3 @@
- cat src/__main__.py
 from llm_sdk import Small_LLM_Model
 import json
 from os import system
@@ -11,7 +10,6 @@ log = model.get_logits_from_input_ids
 
 fun = open('data/input/functions_definition.json', 'r')
 functions = json.load(fun)
-
 function_names = [f['name'] for f in functions]
 
 dec = {f['name']: f['description'] for f in functions}
@@ -22,11 +20,19 @@ user_request = "Say hi to Mark"
 
 
 
+def strip(string):
+    result = ""
+    for char in string:
+        if char != 'Ġ':
+            result += char
+    return result
+
 from os import system
 token_path = model.get_path_to_vocab_file()
 f = open(token_path, 'r')
-function_ids = [encode(text[3:]) for text in function_names]
+function_ids = [encode(text[3:])[0] for text in function_names]
 tokens = json.load(f)
+
 def get_function_names(user_request):
 
     prompt = f"""
@@ -58,86 +64,195 @@ def get_function_names(user_request):
         newly_generated += decode([logits.index(max(logits))])
         
         
-        # print()
-        # exit()
         if newly_generated in function_names:
-            print(newly_generated)
+            return newly_generated
+
+
+def get_valid_number(user_request):
+    prompt = f"""
+    <|im_start|>system
+    your job is to extract arguments from a user prompt like this:
+    for nergative number do this
+    "prompt": "What is the sum of -2 and -3?",
+    "parameters": {{"a": -2.0, "b": -3.0}}
+    "sum of -5 and 3" → {{"a": -5.0, "b": 3.0}}
+    "prompt": "What is the sum of 2 and 3?",
+    "parameters": {{"a": 2.0, "b": 3.0}}
+    <|im_end|>
+    <|im_start|>user
+    {user_request}
+    <|im_end|>
+    <|im_start|>assistant
+
+    "parameters": {{"a": """
+    prompt_len = len(prompt)
+    #get first parameter
+    for i in range(20):
+        enc = encode(prompt)
+        logits = model.get_logits_from_input_ids(enc[0].tolist())
+        if '-' not in prompt[prompt_len:]:
+
+            logits[tokens.get('Ġ-')] += 10
+
+        valid = ['Ġ-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '"', ',', '-']
+        for k, v in tokens.items():
+            if not k in valid:
+                logits[v] = float('-inf')
+        for log in range(len(tokens), len(logits)):
+            logits[log] = float('-inf')
+
+        # valid = {}
+        # for k, v in tokens.items():
+        #     if  logits[v] != float('-inf'):
+        #         valid[k] = v
+        # valid = dict(sorted(valid.items(), key = lambda elem : logits[elem[1]], reverse=True))
+        # for k, v in valid.items():
+        #     print(f'key: {k} ----> score: {logits[v]}')
+
+
+        dec = decode([logits.index(max(logits))])
+        prompt += dec
+        system('clear')
+        print(prompt)
+        if ',' in dec:
+            break
+        if i == 19:
+            prompt += ","
             break
 
+    prompt+=  ' "b": '
+    prompt_len = len(prompt)
+    for i in range(20):
+        enc = encode(prompt)
+        logits = model.get_logits_from_input_ids(enc[0].tolist())
+        if not '-' in prompt[prompt_len:]:
+            logits[tokens.get('Ġ-')] += 10
 
-tests = [
-    # Clear cases
-    "What is 5 plus 3?",
-    "Greet Alice",
-    "Reverse the string 'python'",
-    "What is the square root of 25?",
-    "Replace all vowels with * in 'hello world'",
-    
-    # Synonyms
-    "Add 100 and 200",
-    "Say hello to Bob",
-    "Flip the string 'banana'",
-    "Calculate sqrt of 81",
-    "Substitute 'foo' with 'bar' in 'foo fighters'",
-    
-    # Indirect phrasing
-    "I need to sum 7 and 8",
-    "Can you greet my friend Carlos?",
-    "Invert the word 'racecar'",
-    "Find the square root of 9",
-    "Swap every digit with X in 'phone: 0612345678'",
-    
-    # Tricky — sounds like wrong function
-    "What is 4 squared?",           # NOT add, NOT sqrt — actually substitute or none
-    "Say the reverse of 'hello'",   # reverse, not greet
-    "Greet the number 42",          # greet, not add
-    "Add exclamation marks to 'hello'",  # substitute, not add
-    "What's the root of evil?",     # tricky — square root?
-    
-    # Complex phrasing
-    "Could you please add the numbers 15 and 30 together?",
-    "Would you mind reversing 'OpenAI' for me?",
-    "I want you to say hi to my colleague Sarah",
-    "Please compute the square root of 256",
-    "Change all spaces to underscores in 'hello world foo'",
-    
-    # Very short
-    "5 + 3",
-    "hi Mark",
-    "reverse 'abc'",
-    "sqrt 64",
-    "replace a with b in 'banana'",
-    
-    # Ambiguous
-    "Process the string 'hello'",
-    "Do something with 4 and 9",
-    "Handle 'cat' and 'dog'",
-    "Transform 'hello world'",
-    "Compute 144",
-    
-    # Multi-step sounding
-    "Take 'hello' and give it back reversed",
-    "Take 5 and 10 and tell me their total",
-    "Introduce yourself to Jake",
-    "Find what number times itself gives 49",
-    "Remove all digits from 'abc123def456'",
-    
-    # Foreign phrasing
-    "Bonjour to Marie",
-    "Quanto fa 3 più 4?",
-    "مرحبا بـ Ahmed",
-    "Invertir la cadena 'mundo'",
-    "Racine carrée de 100",
-    
-    # Edge cases
-    "Reverse greet John",           # tricky — reverse or greet?
-    "Add the string 'hello' and 'world'",  # tricky — add or substitute?
-    "Square root of the sum of 9 and 16",  # two operations — which wins?
-    "Greet everyone by reversing 'hello'", # tricky — greet or reverse?
-    "Replace the number 0 with zero in '10 20 30'",  # substitute
-]
+        valid = ['Ġ-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '}', '-']
+        for k, v in tokens.items():
+            if not k in valid:
+                logits[v] = float('-inf')
+        for log in range(len(tokens), len(logits)):
+            logits[log] = float('-inf')
 
-for t in tests:
-    print(f"{t}", end="--->")
-    get_function_names(t)
+        dec = decode([logits.index(max(logits))])
+        prompt += dec
+        system('clear')
+        print(prompt)
+        if '}' in dec:
+            break
+        if i == 19:
+            prompt += "}"
+            break
 
+def get_function_parameters(function_name):
+    for func in functions:
+        if func.get('name') == function_name:
+            return func.get('parameters')
+
+# def get_next_number(user_request):
+#     prompt = f"""<|im_start|>system
+#     You are a number extractor. Extract the relevant number from the user request.
+#     Only output the number, nothing else.
+#     <|im_end|>
+#     <|im_start|>user
+#     {user_request}
+#     <|im_end|>
+#     <|im_start|>assistant
+#     """
+#     p_len = len(prompt)
+#     while True:
+#         enc = encode(prompt)
+#         logits = log(enc[0].tolist())
+
+#         avaiable_logits = [str(i) for i in range(10)]
+#         avaiable_logits.extend(['.', '"', ',', '-', 'Ġ-', '}'])
+
+#         if '-' not in prompt[p_len:]:
+#             logits[tokens.get('Ġ-')] += 10
+        
+#         if '.' in prompt[p_len:]:
+#             logits[tokens.get('.')] = float('-inf')
+#         if '-' in prompt[p_len:]:
+#             logits[tokens.get('Ġ-')] = float('-inf')
+#         if 'Ġ-' in prompt[p_len:]:
+#             logits[tokens.get('Ġ-')] = float('-inf')
+        
+#         for k, v in tokens.items():
+#             if not k in avaiable_logits:
+#                 logits[v] = float('-inf')
+
+        
+#         prompt += decode([logits.index(max(logits))])
+#         system('clear')
+#         print(prompt)
+#         if '}' in prompt[p_len:]:
+#             break
+
+
+test_prompt = f"""<|im_start|>system
+You are a number extractor. Extract the relevant number from the user request.
+Only output the number, nothing else.
+<|im_end|>
+<|im_start|>user
+whats 5 + 9?
+<|im_end|>
+<|im_start|>assistant
+"""
+
+
+
+def get_next_number(prompt, terminator):
+    generated = ""
+    digit_ids = set(range(15, 25))  # 0-9
+    dot_id = 13
+    sign_id = 481  # Ġ-
+    
+    term_id = tokens.get(terminator)
+    while True:
+        original_logits = model.get_logits_from_input_ids(encode(prompt + generated)[0].tolist())
+        logits = original_logits[:]  # copy
+        
+        has_digit = any(c.isdigit() for c in generated)
+        has_dot = '.' in generated
+        has_sign = '-' in generated
+        
+        # block everything
+        for i in range(len(logits)):
+            logits[i] = float('-inf')
+        
+        # allow digits — restore original values
+        for i in digit_ids:
+            logits[i] = original_logits[i]
+        
+        # allow sign only at start
+        if not has_digit and not has_sign:
+            logits[sign_id] = original_logits[sign_id]
+        
+        # allow dot only after a digit, only once
+        if has_digit and not has_dot:
+            logits[dot_id] = original_logits[dot_id]
+        
+        # allow terminator only after a digit
+        if has_digit:
+            logits[term_id] = original_logits[term_id]
+        
+        best = logits.index(max(logits))
+        
+        if best == term_id:
+            break
+        
+        generated += decode([best])
+        system('clear')
+        print(generated)
+    return generated
+
+get_next_number(test_prompt, '}')
+get_next_number(test_prompt, ',')
+
+"""
+
+14.00000000000000000000000000000000000000000
+^CTraceback
+
+"""
